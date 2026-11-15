@@ -19,6 +19,9 @@ COPY --from=build /out/mailnotifier /mailnotifier
 COPY --from=build --chown=65532:65532 /out/data /data
 
 VOLUME ["/data"]
-EXPOSE 2525 8080
+EXPOSE 2525
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["/mailnotifier", "healthcheck"]
 
 ENTRYPOINT ["/mailnotifier"]

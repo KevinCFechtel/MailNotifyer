@@ -17,7 +17,7 @@ das kleine `delivery.Target`-Interface ergänzt werden.
 - UTF-8-sichere Pushover-Limits:
   - Titel/Betreff: maximal 250 Unicode-Zeichen
   - Nachricht: maximal 1024 Unicode-Zeichen
-- JSON-Logs und HTTP-Healthcheck
+- JSON-Logs und externer Connectivity-Healthcheck
 - Betrieb als unprivilegierter Benutzer in einem read-only Container
 
 Anhänge werden beim MIME-Parsing ignoriert und nicht in der Queue gespeichert.
@@ -51,8 +51,11 @@ als Pushover-Titel verwendet.
      --body "MailNotifyer funktioniert."
    ```
 
-Der Healthcheck ist auf dem Host unter
-`http://127.0.0.1:8080/healthz` erreichbar.
+Das Container-Image führt alle 30 Sekunden `/mailnotifier healthcheck` aus.
+Dieser Befehl prüft die externe HTTPS-Erreichbarkeit von Pushover. Dabei wird
+keine Benachrichtigung versendet und es werden keine Pushover-Zugangsdaten
+benötigt. Jeder empfangene HTTP-Status gilt als erfolgreiche
+Netzwerkverbindung.
 
 > **Netzwerksicherheit:** Compose bindet SMTP standardmäßig nur an
 > `127.0.0.1`. Für andere interne Geräte sollte `SMTP_BIND_ADDRESS` auf die
@@ -82,11 +85,11 @@ Der Healthcheck ist auf dem Host unter
 | `SMTP_ALLOWED_CIDRS` | private Netze + Loopback | Kommagetrennte Quellnetz-Allowlist |
 | `SMTP_MAX_MESSAGE_BYTES` | `10485760` | Maximale Größe einer eingehenden Mail |
 | `QUEUE_DIR` | `/data/queue` | Persistentes Queue-Verzeichnis |
-| `HTTP_ADDR` | `:8080` | Health-Listener |
+| `HEALTHCHECK_URL` | `https://api.pushover.net/1/` | Externer Connectivity-Endpunkt |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` oder `error` |
 
-Die Compose-spezifischen Variablen `SMTP_BIND_ADDRESS`, `SMTP_PORT` und
-`HEALTH_PORT` steuern nur die Portfreigaben auf dem Host.
+Die Compose-spezifischen Variablen `SMTP_BIND_ADDRESS` und `SMTP_PORT` steuern
+nur die SMTP-Portfreigabe auf dem Host.
 
 ## Queue-Verhalten
 
