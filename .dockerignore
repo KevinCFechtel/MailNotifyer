@@ -1,0 +1,7 @@
+.git
+.github
+.env
+mailnotifier
+*.out
+coverage.*
+README.md
