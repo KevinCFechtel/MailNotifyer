@@ -14,7 +14,6 @@ type Config struct {
 	SMTPAllowedCIDRs []string
 	MaxMessageBytes  int64
 	QueueDir         string
-	HTTPAddr         string
 	PushoverToken    string
 	PushoverUser     string
 	PushoverDevice   string
@@ -39,7 +38,6 @@ func Load() (Config, error) {
 		SMTPAllowedCIDRs: splitCSV(env("SMTP_ALLOWED_CIDRS", "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128,fc00::/7")),
 		MaxMessageBytes:  maxMessageBytes,
 		QueueDir:         env("QUEUE_DIR", "/data/queue"),
-		HTTPAddr:         env("HTTP_ADDR", ":8080"),
 		PushoverToken:    strings.TrimSpace(os.Getenv("PUSHOVER_TOKEN")),
 		PushoverUser:     strings.TrimSpace(os.Getenv("PUSHOVER_USER")),
 		PushoverDevice:   strings.TrimSpace(os.Getenv("PUSHOVER_DEVICE")),
