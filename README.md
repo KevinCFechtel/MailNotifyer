@@ -1,143 +1,136 @@
 # MailNotifyer
 
-MailNotifyer nimmt E-Mails per SMTP aus einem vertrauenswürdigen internen Netz
-entgegen und sendet daraus Benachrichtigungen an
-[Pushover](https://pushover.net/). Angenommene Nachrichten werden vor der
-SMTP-Bestätigung dauerhaft lokal gespeichert. Weitere Zustellziele können über
-das kleine `delivery.Target`-Interface ergänzt werden.
+MailNotifyer accepts emails via SMTP from a trusted internal network and sends
+notifications to [Pushover](https://pushover.net/). Accepted messages are stored
+durably on local storage before SMTP acceptance is acknowledged. Additional
+delivery targets can be added through the small `delivery.Target` interface.
 
-## Funktionsumfang
+## Features
 
-- SMTP-/ESMTP-Listener auf Port `2525`
-- CIDR-Allowlist auf Verbindungsebene
-- persistente dateibasierte Queue mit atomaren Schreibvorgängen
-- exponentielle Wiederholungen bei Netzwerk- und Pushover-5xx-Fehlern
-- separates `failed`-Verzeichnis für dauerhafte Pushover-4xx-Fehler
-- MIME-Parsing mit `text/plain` und HTML-zu-Text-Fallback
-- UTF-8-sichere Pushover-Limits:
-  - Titel/Betreff: maximal 250 Unicode-Zeichen
-  - Nachricht: maximal 1024 Unicode-Zeichen
-- JSON-Logs und externer Connectivity-Healthcheck
-- Betrieb als unprivilegierter Benutzer in einem read-only Container
+- SMTP/ESMTP listener on port `2525`
+- Connection-level CIDR allowlist
+- Persistent file-based queue with atomic writes
+- Exponential retries for network errors and Pushover 5xx errors
+- Separate `failed` directory for permanent Pushover 4xx errors
+- MIME parsing with `text/plain` and an HTML-to-text fallback
+- UTF-8-safe Pushover limits:
+  - Title/subject: up to 250 Unicode characters
+  - Message: up to 1024 Unicode characters
+- JSON logs and an external connectivity health check
+- Runs as an unprivileged user in a read-only container
 
-Anhänge werden beim MIME-Parsing ignoriert und nicht in der Queue gespeichert.
-Die Pushover-Nachricht besteht aus Absender und Nachrichtentext; der Betreff wird
-als Pushover-Titel verwendet.
+Attachments are ignored during MIME parsing and are not stored in the queue.
+The Pushover message contains the sender and message body; the subject is used
+as the Pushover title.
 
-## Schnellstart
+## Quick start
 
-1. Eine Pushover-Anwendung anlegen und Token sowie User-/Group-Key bereithalten.
-2. Konfiguration erstellen:
+1. Create a Pushover application and have its token and user/group key ready.
+2. Create the configuration:
 
    ```sh
    cp .env.example .env
    ```
 
-3. In `.env` mindestens `PUSHOVER_TOKEN` und `PUSHOVER_USER` setzen.
-4. Dienst starten:
+3. Set at least `PUSHOVER_TOKEN` and `PUSHOVER_USER` in `.env`.
+4. Start the service:
 
    ```sh
    docker compose up -d --build
    ```
 
-5. Testmail senden, beispielsweise mit `swaks`:
+5. Send a test email, for example with `swaks`:
 
    ```sh
    swaks \
      --server 127.0.0.1:2525 \
      --from monitoring@example.local \
      --to alerts@example.local \
-     --header "Subject: Testalarm" \
-     --body "MailNotifyer funktioniert."
+     --header "Subject: Test alert" \
+     --body "MailNotifyer is working."
    ```
 
-Das Container-Image führt alle 30 Sekunden `/mailnotifier healthcheck` aus.
-Dieser Befehl prüft die externe HTTPS-Erreichbarkeit von Pushover. Dabei wird
-keine Benachrichtigung versendet und es werden keine Pushover-Zugangsdaten
-benötigt. Jeder empfangene HTTP-Status gilt als erfolgreiche
-Netzwerkverbindung.
+The container image runs `/mailnotifier healthcheck` every 30 seconds.
+This command checks external HTTPS connectivity to Pushover. It does not send
+a notification and does not require Pushover credentials. Any received HTTP
+status is considered a successful network connection.
 
-> **Netzwerksicherheit:** Compose bindet SMTP standardmäßig nur an
-> `127.0.0.1`. Für andere interne Geräte sollte `SMTP_BIND_ADDRESS` auf die
-> konkrete private Interface-IP gesetzt und zusätzlich per Host-Firewall
-> eingeschränkt werden. Die CIDR-Allowlist ersetzt keine Firewall. Bei
-> vorgeschaltetem NAT oder Proxy sieht MailNotifyer möglicherweise dessen
-> Adresse; die Allowlist muss die tatsächlich beobachtete Quelladresse
-> enthalten.
+> **Network security:** By default, Compose binds SMTP only to `127.0.0.1`.
+> To allow other internal devices, set `SMTP_BIND_ADDRESS` to the specific
+> private interface IP and restrict access further with a host firewall.
+> The CIDR allowlist is not a replacement for a firewall. If traffic passes
+> through NAT or a proxy, MailNotifyer may see that address instead; the
+> allowlist must include the source address actually observed.
 >
-> Der gewählte interne Listener bietet bewusst weder SMTP AUTH noch TLS. E-Mails
-> und Zugang zum Listener müssen daher durch ein isoliertes, vertrauenswürdiges
-> Netz und die Allowlist geschützt werden. Für Verkehr über nicht
-> vertrauenswürdige Netze sollte TLS/AUTH ergänzt oder ein gehärteter MTA
-> vorgeschaltet werden.
+> This internal listener intentionally provides neither SMTP AUTH nor TLS.
+> Emails and access to the listener must therefore be protected by an isolated,
+> trusted network and the allowlist. For traffic over untrusted networks, add
+> TLS/AUTH or place a hardened MTA in front of MailNotifyer.
 
-## Konfiguration
+## Configuration
 
-| Variable | Standard | Beschreibung |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `PUSHOVER_TOKEN` | – | Pushover Application API Token, erforderlich |
-| `PUSHOVER_USER` | – | Pushover User- oder Group-Key, erforderlich |
-| `PUSHOVER_DEVICE` | leer | Optionales einzelnes Pushover-Gerät |
-| `PUSHOVER_ENDPOINT` | Pushover API | Abweichender API-Endpunkt, primär für Tests |
-| `PUSHOVER_TIMEOUT` | `10s` | HTTP-Timeout |
-| `SMTP_ADDR` | `:2525` | Listener-Adresse im Container |
-| `SMTP_DOMAIN` | `mailnotifier.local` | SMTP-Banner-Domain |
-| `SMTP_ALLOWED_CIDRS` | private Netze + Loopback | Kommagetrennte Quellnetz-Allowlist |
-| `SMTP_MAX_MESSAGE_BYTES` | `10485760` | Maximale Größe einer eingehenden Mail |
-| `QUEUE_DIR` | `/data/queue` | Persistentes Queue-Verzeichnis |
-| `HEALTHCHECK_URL` | `https://api.pushover.net/1/` | Externer Connectivity-Endpunkt |
-| `LOG_LEVEL` | `info` | `debug`, `info`, `warn` oder `error` |
+| `PUSHOVER_TOKEN` | – | Pushover application API token, required |
+| `PUSHOVER_USER` | – | Pushover user or group key, required |
+| `PUSHOVER_DEVICE` | empty | Optional single Pushover device |
+| `PUSHOVER_ENDPOINT` | Pushover API | Custom API endpoint, primarily for tests |
+| `PUSHOVER_TIMEOUT` | `10s` | HTTP timeout |
+| `SMTP_ADDR` | `:2525` | Listener address inside the container |
+| `SMTP_DOMAIN` | `mailnotifier.local` | SMTP banner domain |
+| `SMTP_ALLOWED_CIDRS` | private networks + loopback | Comma-separated source network allowlist |
+| `SMTP_MAX_MESSAGE_BYTES` | `10485760` | Maximum size of an incoming email |
+| `QUEUE_DIR` | `/data/queue` | Persistent queue directory |
+| `HEALTHCHECK_URL` | `https://api.pushover.net/1/` | External connectivity endpoint |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error` |
 
-Die Compose-spezifischen Variablen `SMTP_BIND_ADDRESS` und `SMTP_PORT` steuern
-nur die SMTP-Portfreigabe auf dem Host.
+The Compose-specific variables `SMTP_BIND_ADDRESS` and `SMTP_PORT` only control
+SMTP port publishing on the host.
 
-## Queue-Verhalten
+## Queue behavior
 
-Nach erfolgreichem MIME-Parsing wird nur die zielunabhängige Benachrichtigung
-unter `/data/queue/pending/<id>.json` gespeichert. Erst nach erfolgreichem
-`fsync` und atomarem Umbenennen bestätigt der SMTP-Server die Annahme. Das
-Pushover-Target kürzt Titel und Nachricht erst unmittelbar vor seinem
-API-Aufruf, damit spätere Targets weiterhin den vollständigen Text erhalten.
+After successful MIME parsing, only the target-independent notification is
+stored at `/data/queue/pending/<id>.json`. The SMTP server acknowledges acceptance
+only after a successful `fsync` and atomic rename. The Pushover target truncates
+the title and message immediately before its API call so that future targets
+can still receive the full text.
 
-- Netzwerkfehler und HTTP-5xx: Wiederholung nach 5 Sekunden, dann exponentiell
-  bis maximal einmal pro Stunde.
-- HTTP-4xx einschließlich Pushover-Quota-Fehlern: keine unveränderte
-  Wiederholung, da Pushover dies ausdrücklich als nicht erfolgreich
-  dokumentiert. Das Queue-Element wird nach `/data/queue/failed` verschoben.
-- Erfolgreiche Zustellung: Queue-Datei wird gelöscht.
+- Network errors and HTTP 5xx: retry after 5 seconds, then use exponential
+  backoff with a maximum delay of one hour.
+- HTTP 4xx, including Pushover quota errors: do not retry the unchanged request,
+  as Pushover explicitly documents these responses as unsuccessful. The queue
+  item is moved to `/data/queue/failed`.
+- Successful delivery: the queue file is deleted.
 
-Fehlgeschlagene Elemente werden absichtlich nicht automatisch gelöscht. Nach
-Behebung der Ursache können sie geprüft und bei Bedarf manuell wieder nach
-`pending` verschoben werden.
+Failed items are intentionally not deleted automatically. After resolving the
+cause, they can be reviewed and manually moved back to `pending` if needed.
 
-## Warum dieser SMTP-Listener?
+## Why this SMTP listener?
 
-Für den gewählten Einsatz im internen Netz ist
-[`emersion/go-smtp`](https://github.com/emersion/go-smtp) die passendste
-Lösung:
+For the intended internal-network use case,
+[`emersion/go-smtp`](https://github.com/emersion/go-smtp) is the best fit:
 
-- aktiv gepflegte RFC-5321-Implementierung,
-- direkte Einbettung in denselben Prozess wie Queue und Targets,
-- kleiner statischer Container ohne separaten MTA,
-- Größenlimits, Timeouts, SMTPUTF8 und sauberes Shutdown-Verhalten.
+- Actively maintained RFC 5321 implementation
+- Direct integration into the same process as the queue and targets
+- Small container with a static binary and no separate MTA
+- Size limits, timeouts, SMTPUTF8, and graceful shutdown
 
-Alternativen:
+Alternatives:
 
-- **Postfix** ist die bessere Wahl, wenn MailNotifyer künftig direkt als
-  öffentlicher MX aus dem Internet empfangen soll. Es bietet eine
-  kampferprobte Mail-Queue, umfangreiche Zugriffskontrollen und etablierte
-  MTA-Härtung, erhöht für den internen Anwendungsfall aber Komplexität und
-  Container-Größe.
-- **Haraka** ist leistungsfähig und pluginorientiert, wäre hier jedoch eine
-  zusätzliche Laufzeit plus eigener Queue-Plugin-Logik.
-- **Mailpit/MailHog** sind primär Test-Mailserver und keine passende Grundlage
-  für einen produktiven Benachrichtigungsdienst.
+- **Postfix** is the better choice if MailNotifyer is to receive mail directly
+  from the internet as a public MX in the future. It provides a battle-tested
+  mail queue, extensive access controls, and established MTA hardening, but adds
+  complexity and container size for this internal use case.
+- **Haraka** is powerful and plugin-oriented, but would require an additional
+  runtime and custom queue plugin logic here.
+- **Mailpit/MailHog** are primarily test mail servers and are not a suitable
+  foundation for a production notification service.
 
-Ein Wechsel zu öffentlichem MX-Betrieb sollte deshalb nicht nur durch Öffnen
-von Port 25 erfolgen, sondern mit Postfix als vorgeschaltetem MTA und Übergabe
-an MailNotifyer per LMTP oder Pipe.
+A move to public MX operation should therefore involve more than opening
+port 25: place Postfix in front as the MTA and hand messages off to MailNotifyer
+via LMTP or a pipe.
 
-## Entwicklung
+## Development
 
 ```sh
 go test ./...
@@ -145,28 +138,28 @@ go vet ./...
 docker build -t mailnotifier .
 ```
 
-## CI, Sicherheit und Container-Veröffentlichung
+## CI, security, and container publishing
 
-Der Workflow unter `.github/workflows/ci.yml` folgt dem Muster von
-CupNotifyer. Er läuft für Pull Requests, Pushes auf `main`, Versionstags,
-manuelle Aufrufe und wöchentlich:
+The workflow in `.github/workflows/ci.yml` follows the CupNotifyer pattern.
+It runs for pull requests, pushes to `main`, version tags, manual triggers,
+and on a weekly schedule:
 
-- Formatprüfung, Race-Tests, `go vet`, Binary-Build und `govulncheck`
-- Dependency Review für Pull Requests
-- CodeQL-Analyse
-- Container-Build und Trivy-Scan ausschließlich bei Versionstags
-- Veröffentlichung für `linux/amd64` und `linux/arm64` mit SBOM und Provenance
-  nach `ghcr.io/<owner>/<repository>`
+- Formatting checks, race tests, `go vet`, binary build, and `govulncheck`
+- Dependency review for pull requests
+- CodeQL analysis
+- Container build and Trivy scan only for version tags
+- Publishing for `linux/amd64` and `linux/arm64` with SBOM and provenance
+  to `ghcr.io/<owner>/<repository>`
 
-Ein semantischer Versionstag wie `v1.2.3` veröffentlicht Tags für die genaue
-Version, Major/Minor, Commit-SHA und `latest`. Alle verwendeten Actions sind
-auf Commit-SHAs fixiert. Dependabot prüft Go-Module, GitHub Actions und das
-Docker-Basisimage wöchentlich.
+A semantic version tag such as `v1.2.3` publishes tags for the exact version,
+major/minor version, commit SHA, and `latest`. All actions are pinned to commit
+SHAs. Dependabot checks Go modules, GitHub Actions, and the Docker base image
+weekly.
 
-Die wichtigsten Pakete:
+Key packages:
 
-- `internal/smtpserver`: SMTP-Annahme und Netzwerk-Allowlist
-- `internal/mailparser`: MIME-Abbildung und Zeichenlimits
-- `internal/queue`: persistente Zustellung und Backoff
-- `internal/delivery`: erweiterbare Target-Schnittstelle
-- `internal/target/pushover`: Pushover-Implementierung
+- `internal/smtpserver`: SMTP acceptance and network allowlist
+- `internal/mailparser`: MIME mapping and character limits
+- `internal/queue`: persistent delivery and backoff
+- `internal/delivery`: extensible target interface
+- `internal/target/pushover`: Pushover implementation
