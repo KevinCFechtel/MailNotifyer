@@ -25,19 +25,19 @@ func Parse(r io.Reader, envelopeFrom string, recipients []string, now time.Time)
 		from = strings.TrimSpace(envelopeFrom)
 	}
 	if from == "" {
-		from = "(unbekannt)"
+		from = "(unknown)"
 	}
 
 	title := strings.TrimSpace(env.GetHeader("Subject"))
 	if title == "" {
-		title = "(Kein Betreff)"
+		title = "(No subject)"
 	}
 
 	body := strings.TrimSpace(env.Text)
 	if body == "" {
-		body = "(Kein Nachrichtentext)"
+		body = "(No message body)"
 	}
-	message := "Von: " + from + "\n\n" + body
+	message := "From: " + from + "\n\n" + body
 
 	id, err := newID()
 	if err != nil {
