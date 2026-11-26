@@ -20,13 +20,14 @@ type Enqueuer interface {
 }
 
 type Backend struct {
-	allowed []*net.IPNet
-	queue   Enqueuer
-	logger  *slog.Logger
-	now     func() time.Time
+	allowed       []*net.IPNet
+	queue         Enqueuer
+	logger        *slog.Logger
+	now           func() time.Time
+	parserOptions mailparser.Options
 }
 
-func NewBackend(cidrs []string, queue Enqueuer, logger *slog.Logger) (*Backend, error) {
+func NewBackend(cidrs []string, queue Enqueuer, logger *slog.Logger, parserOptions mailparser.Options) (*Backend, error) {
 	allowed := make([]*net.IPNet, 0, len(cidrs))
 	for _, value := range cidrs {
 		_, network, err := net.ParseCIDR(strings.TrimSpace(value))
@@ -38,7 +39,7 @@ func NewBackend(cidrs []string, queue Enqueuer, logger *slog.Logger) (*Backend, 
 	if len(allowed) == 0 {
 		return nil, errors.New("at least one SMTP allowlist CIDR is required")
 	}
-	return &Backend{allowed: allowed, queue: queue, logger: logger, now: time.Now}, nil
+	return &Backend{allowed: allowed, queue: queue, logger: logger, now: time.Now, parserOptions: parserOptions}, nil
 }
 
 func (b *Backend) NewSession(conn *smtp.Conn) (smtp.Session, error) {
@@ -81,7 +82,7 @@ func (s *session) Rcpt(to string, _ *smtp.RcptOptions) error {
 }
 
 func (s *session) Data(r io.Reader) error {
-	item, err := mailparser.Parse(r, s.from, s.recipients, s.backend.now())
+	item, err := mailparser.Parse(r, s.from, s.recipients, s.backend.now(), s.backend.parserOptions)
 	if err != nil {
 		s.backend.logger.Warn("rejected malformed message", "from", s.from, "error", err)
 		return &smtp.SMTPError{Code: 554, EnhancedCode: smtp.EnhancedCode{5, 6, 0}, Message: "Invalid message content"}

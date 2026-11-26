@@ -22,19 +22,21 @@ const (
 )
 
 type Client struct {
-	token      string
-	user       string
-	device     string
-	endpoint   string
-	httpClient *http.Client
+	token         string
+	user          string
+	device        string
+	endpoint      string
+	httpClient    *http.Client
+	encryptionKey []byte
 }
 
 type request struct {
-	Token   string `json:"token"`
-	User    string `json:"user"`
-	Device  string `json:"device,omitempty"`
-	Title   string `json:"title"`
-	Message string `json:"message"`
+	Token     string `json:"token"`
+	User      string `json:"user"`
+	Device    string `json:"device,omitempty"`
+	Title     string `json:"title"`
+	Message   string `json:"message"`
+	Encrypted int    `json:"encrypted,omitempty"`
 }
 
 type response struct {
@@ -43,19 +45,24 @@ type response struct {
 	Errors  []string `json:"errors"`
 }
 
-func New(token, user, device, endpoint string, timeout time.Duration) *Client {
+func New(token, user, device, endpoint, encryptionKey string, timeout time.Duration) (*Client, error) {
+	key, err := parseEncryptionKey(encryptionKey)
+	if err != nil {
+		return nil, err
+	}
 	if endpoint == "" {
 		endpoint = DefaultEndpoint
 	}
 	return &Client{
-		token:    token,
-		user:     user,
-		device:   device,
-		endpoint: endpoint,
+		token:         token,
+		user:          user,
+		device:        device,
+		endpoint:      endpoint,
+		encryptionKey: key,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-	}
+	}, nil
 }
 
 func (c *Client) Name() string {
@@ -63,13 +70,26 @@ func (c *Client) Name() string {
 }
 
 func (c *Client) Deliver(ctx context.Context, item notification.Notification) error {
-	payload, err := json.Marshal(request{
+	data := request{
 		Token:   c.token,
 		User:    c.user,
 		Device:  c.device,
 		Title:   notification.Truncate(item.Title, MaxTitleRunes),
 		Message: notification.Truncate(item.Message, MaxMessageRunes),
-	})
+	}
+	if c.encryptionKey != nil {
+		var err error
+		data.Title, err = encryptField(data.Title, c.encryptionKey, MaxTitleRunes)
+		if err != nil {
+			return delivery.Permanent(fmt.Errorf("encrypt Pushover title: %w", err))
+		}
+		data.Message, err = encryptField(data.Message, c.encryptionKey, MaxMessageRunes)
+		if err != nil {
+			return delivery.Permanent(fmt.Errorf("encrypt Pushover message: %w", err))
+		}
+		data.Encrypted = 1
+	}
+	payload, err := json.Marshal(data)
 	if err != nil {
 		return delivery.Permanent(fmt.Errorf("encode Pushover request: %w", err))
 	}
