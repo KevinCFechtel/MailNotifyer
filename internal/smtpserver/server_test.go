@@ -11,6 +11,7 @@ import (
 
 	smtp "github.com/emersion/go-smtp"
 
+	"github.com/KevinCFechtel/MailNotifyer/internal/mailparser"
 	"github.com/KevinCFechtel/MailNotifyer/internal/notification"
 )
 
@@ -29,6 +30,7 @@ func TestAllowlist(t *testing.T) {
 		[]string{"10.0.0.0/8", "2001:db8::/32"},
 		&memoryQueue{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		mailparser.Options{},
 	)
 	if err != nil {
 		t.Fatalf("NewBackend() error = %v", err)
@@ -55,6 +57,7 @@ func TestInvalidAllowlist(t *testing.T) {
 		[]string{"not-a-cidr"},
 		&memoryQueue{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		mailparser.Options{},
 	)
 	if err == nil {
 		t.Fatal("NewBackend() error = nil")
@@ -67,6 +70,7 @@ func TestSMTPAcceptanceQueuesMail(t *testing.T) {
 		[]string{"127.0.0.0/8"},
 		queue,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		mailparser.Options{},
 	)
 	if err != nil {
 		t.Fatalf("NewBackend() error = %v", err)
@@ -111,5 +115,47 @@ func TestSMTPAcceptanceQueuesMail(t *testing.T) {
 	}
 	if queue.items[0].Title != "Integration test" {
 		t.Errorf("queued title = %q", queue.items[0].Title)
+	}
+}
+
+func TestDataQueuesTrimmedUnattendedUpgrades(t *testing.T) {
+	t.Parallel()
+	const summary = "Packages upgraded: openssl"
+	const packageLog = summary + "\n\nPackage installation log:\nPackage details"
+	const fullBody = packageLog + "\n\nUnattended-upgrades log:\nUpgrade details"
+	tests := []struct {
+		mode mailparser.UnattendedUpgradesTrimFrom
+		want string
+	}{
+		{mode: mailparser.TrimPackageInstallationLog, want: summary},
+		{mode: mailparser.TrimUnattendedUpgradesLog, want: packageLog},
+		{mode: mailparser.TrimNone, want: fullBody},
+	}
+	for _, test := range tests {
+		t.Run(string(test.mode), func(t *testing.T) {
+			t.Parallel()
+			queue := &memoryQueue{}
+			backend, err := NewBackend(
+				[]string{"127.0.0.0/8"},
+				queue,
+				slog.New(slog.NewTextHandler(io.Discard, nil)),
+				mailparser.Options{UnattendedUpgradesTrimFrom: test.mode},
+			)
+			if err != nil {
+				t.Fatalf("NewBackend() error = %v", err)
+			}
+			session := &session{backend: backend, from: "root@example.test", recipients: []string{"alerts@example.test"}}
+			raw := "Subject: unattended-upgrades result for host: SUCCESS\r\n" +
+				"Content-Type: text/plain; charset=utf-8\r\n\r\n" + fullBody
+			if err := session.Data(strings.NewReader(raw)); err != nil {
+				t.Fatalf("Data() error = %v", err)
+			}
+			if len(queue.items) != 1 {
+				t.Fatalf("queued count = %d, want 1", len(queue.items))
+			}
+			if want := "From: root@example.test\n\n" + test.want; queue.items[0].Message != want {
+				t.Errorf("queued message = %q, want %q", queue.items[0].Message, want)
+			}
+		})
 	}
 }

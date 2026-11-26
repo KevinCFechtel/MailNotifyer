@@ -15,6 +15,7 @@ import (
 
 	"github.com/KevinCFechtel/MailNotifyer/internal/config"
 	"github.com/KevinCFechtel/MailNotifyer/internal/health"
+	"github.com/KevinCFechtel/MailNotifyer/internal/mailparser"
 	"github.com/KevinCFechtel/MailNotifyer/internal/queue"
 	"github.com/KevinCFechtel/MailNotifyer/internal/smtpserver"
 	"github.com/KevinCFechtel/MailNotifyer/internal/target/pushover"
@@ -34,19 +35,26 @@ func main() {
 	logger := newLogger(cfg.LogLevel)
 	slog.SetDefault(logger)
 
-	target := pushover.New(
+	target, err := pushover.New(
 		cfg.PushoverToken,
 		cfg.PushoverUser,
 		cfg.PushoverDevice,
 		cfg.PushoverEndpoint,
+		cfg.PushoverEncryptionKey,
 		cfg.PushoverTimeout,
 	)
+	if err != nil {
+		logger.Error("cannot initialize Pushover target", "error", err)
+		os.Exit(1)
+	}
 	deliveryQueue, err := queue.New(cfg.QueueDir, target, logger)
 	if err != nil {
 		logger.Error("cannot initialize queue", "error", err)
 		os.Exit(1)
 	}
-	backend, err := smtpserver.NewBackend(cfg.SMTPAllowedCIDRs, deliveryQueue, logger)
+	backend, err := smtpserver.NewBackend(cfg.SMTPAllowedCIDRs, deliveryQueue, logger, mailparser.Options{
+		UnattendedUpgradesTrimFrom: cfg.UnattendedUpgradesTrimFrom,
+	})
 	if err != nil {
 		logger.Error("cannot initialize SMTP backend", "error", err)
 		os.Exit(1)

@@ -13,6 +13,8 @@ delivery targets can be added through the small `delivery.Target` interface.
 - Exponential retries for network errors and Pushover 5xx errors
 - Separate `failed` directory for permanent Pushover 4xx errors
 - MIME parsing with `text/plain` and an HTML-to-text fallback
+- Configurable removal of unattended-upgrades logs
+- Optional Pushover end-to-end encryption of the title and message
 - UTF-8-safe Pushover limits:
   - Title/subject: up to 250 Unicode characters
   - Message: up to 1024 Unicode characters
@@ -74,18 +76,68 @@ status is considered a successful network connection.
 | `PUSHOVER_TOKEN` | – | Pushover application API token, required |
 | `PUSHOVER_USER` | – | Pushover user or group key, required |
 | `PUSHOVER_DEVICE` | empty | Optional single Pushover device |
+| `PUSHOVER_ENCRYPTION_KEY` | empty | Optional E2EE key: exactly 64 hexadecimal characters; empty disables encryption |
 | `PUSHOVER_ENDPOINT` | Pushover API | Custom API endpoint, primarily for tests |
 | `PUSHOVER_TIMEOUT` | `10s` | HTTP timeout |
 | `SMTP_ADDR` | `:2525` | Listener address inside the container |
 | `SMTP_DOMAIN` | `mailnotifier.local` | SMTP banner domain |
 | `SMTP_ALLOWED_CIDRS` | private networks + loopback | Comma-separated source network allowlist |
 | `SMTP_MAX_MESSAGE_BYTES` | `10485760` | Maximum size of an incoming email |
+| `UNATTENDED_UPGRADES_TRIM_FROM` | `package-installation-log` | Trim unattended-upgrades emails from `package-installation-log`, `unattended-upgrades-log`, or disable with `none` |
 | `QUEUE_DIR` | `/data/queue` | Persistent queue directory |
 | `HEALTHCHECK_URL` | `https://api.pushover.net/1/` | External connectivity endpoint |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error` |
 
 The Compose-specific variables `SMTP_BIND_ADDRESS` and `SMTP_PORT` only control
 SMTP port publishing on the host.
+
+### Pushover end-to-end encryption
+
+Generate a 256-bit key locally:
+
+```sh
+openssl rand -hex 32
+```
+
+Set the result as `PUSHOVER_ENCRYPTION_KEY` in `.env` and configure the same key
+in every receiving Pushover iOS/Android app (version 5.0 or later). Restart/recreate
+the service after changing it. Desktop/browser clients cannot decrypt E2EE
+messages; optionally use `PUSHOVER_DEVICE` to target a compatible mobile device.
+Treat the key as a secret and do not commit `.env`.
+
+MailNotifyer follows the [Pushover E2EE specification](https://pushover.net/api#e2ee):
+each title and message is independently GZIP-compressed, encrypted with
+AES-256-CBC and PKCS7 padding using a fresh random IV, authenticated with
+HMAC-SHA256, and Base64-encoded. Requests include `encrypted=1`; the encryption
+key is never sent to Pushover. Invalid keys stop startup, and encryption failures
+never fall back to plaintext.
+
+The final encrypted fields respect the existing 250-character title and
+1024-character message limits. If compression does not offset the encryption
+overhead, the plaintext is shortened further with a Unicode-safe ellipsis before
+encryption. Ciphertext is never truncated.
+
+E2EE only protects title/message content on its way from MailNotifyer to the
+receiving apps. API credentials and routing metadata remain visible to Pushover.
+Incoming SMTP and the local on-disk queue are **not** encrypted by this feature;
+protect the SMTP network and queue storage separately. Encryption happens at
+delivery, including retries and items already in the queue.
+
+### Unattended-upgrades emails
+
+Emails whose decoded subject contains `unattended-upgrades` (case-insensitive)
+are shortened before being stored in the queue. Set
+`UNATTENDED_UPGRADES_TRIM_FROM` to:
+
+- `package-installation-log` (default): remove the line `Package installation log:`
+  and everything after it.
+- `unattended-upgrades-log`: keep the package installation log, but remove the
+  line `Unattended-upgrades log:` and everything after it.
+- `none`: keep the full body (Pushover's character limit still applies).
+
+Headings must occupy a whole line; surrounding whitespace is ignored. If the
+selected heading is absent, the body is kept unchanged. Other emails are not
+affected. Changes apply to newly received emails, not existing queue items.
 
 ## Queue behavior
 
